@@ -32,6 +32,8 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
     private static final float PLAYER_HITBOX_HEIGHT = 12f;
     private static final float WALK_SPEED = 240f;
     private static final float SPRINT_SPEED = 420f;
+    private static final String[] TITLE_MENU_ITEMS = {"New Game", "Exit"};
+    private static final String[] PAUSE_MENU_ITEMS = {"Resume", "Restart", "Main Menu", "Exit"};
 
     private SpriteBatch batch;
     private FitViewport viewport;
@@ -40,11 +42,14 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
     private GdxTextureStore textureStore;
     private GdxScene scene;
     private GdxInteractionOverlay overlay;
+    private GdxMenuOverlay menuOverlay;
     private GdxStoryState story;
     private GdxMapData[] maps;
     private int currentMapIndex;
+    private ScreenMode screenMode = ScreenMode.TITLE;
     private Texture heroIdleSheet;
     private Texture heroRunSheet;
+    private Texture titleBackground;
     private TextureRegion[][] heroIdleFrames;
     private TextureRegion[][] heroRunFrames;
     private float playerX;
@@ -56,6 +61,7 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
     private boolean bedroomLampOn;
     private boolean phoneDresserOpen;
     private boolean hasLantern;
+    private int menuIndex;
     private GdxSceneActor interactionTarget;
     private final Rectangle playerHitbox = new Rectangle();
     private final Rectangle interactionArea = new Rectangle();
@@ -67,9 +73,7 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
         uiViewport = new FitViewport(WORLD_WIDTH, WORLD_HEIGHT);
         tileCatalog = new GdxTileCatalog();
         textureStore = new GdxTextureStore();
-        scene = GdxScene.create(textureStore);
         overlay = new GdxInteractionOverlay();
-        story = new GdxStoryState();
         maps = new GdxMapData[] {
                 GdxMapData.load("Apartment", "maps/apartment.txt", TILE_SIZE, 16, 12),
                 GdxMapData.load("Forest of Doubts", "maps/forest_doubts.txt", TILE_SIZE, 23, 43),
@@ -77,11 +81,14 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
                 GdxMapData.load("Mountain", "maps/map03.txt", TILE_SIZE, 24, 38),
                 GdxMapData.load("Library", "maps/library.txt", TILE_SIZE, 24, 21)
         };
+        titleBackground = loadNearestTexture("ui/title_reflection_bg.png");
+        menuOverlay = new GdxMenuOverlay(titleBackground);
         heroIdleSheet = loadNearestTexture("player/new/Amelia_idle_anim_16x16.png");
         heroRunSheet = loadNearestTexture("player/new/Amelia_run_16x16.png");
         heroIdleFrames = sliceHeroSheet(heroIdleSheet);
         heroRunFrames = sliceHeroSheet(heroRunSheet);
-        switchMap(0);
+        resetGame();
+        screenMode = ScreenMode.TITLE;
     }
 
     @Override
@@ -94,13 +101,30 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
     @Override
     public void render() {
         float delta = Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f);
-        handleInput(delta);
-        updateInteractionTarget();
-        updateCamera();
+        if (screenMode == ScreenMode.TITLE) {
+            handleTitleInput();
+            interactionTarget = null;
+        } else if (screenMode == ScreenMode.PAUSED) {
+            handlePauseInput();
+            interactionTarget = null;
+        } else {
+            handleInput(delta);
+            updateInteractionTarget();
+            updateCamera();
+        }
         updateTitle(delta);
 
         Gdx.gl.glClearColor(0f, 0f, 0f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+
+        if (screenMode == ScreenMode.TITLE) {
+            uiViewport.apply(false);
+            batch.setProjectionMatrix(uiViewport.getCamera().combined);
+            batch.begin();
+            menuOverlay.drawTitle(batch, TITLE_MENU_ITEMS, menuIndex);
+            batch.end();
+            return;
+        }
 
         viewport.apply(false);
         batch.setProjectionMatrix(viewport.getCamera().combined);
@@ -108,13 +132,17 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
         drawVisibleTiles();
         scene.drawFloorObjects(batch, currentMapIndex, currentMap().pixelHeight(TILE_SIZE));
         scene.drawSortedActors(batch, currentMapIndex, currentMap().pixelHeight(TILE_SIZE), playerY,
-                () -> drawPlayer(!overlay.isBlocking() && isMovingInputActive()));
+                () -> drawPlayer(screenMode == ScreenMode.PLAYING && !overlay.isBlocking() && isMovingInputActive()));
         batch.end();
 
         uiViewport.apply(false);
         batch.setProjectionMatrix(uiViewport.getCamera().combined);
         batch.begin();
-        overlay.draw(batch, promptText());
+        if (screenMode == ScreenMode.PAUSED) {
+            menuOverlay.drawPause(batch, PAUSE_MENU_ITEMS, menuIndex);
+        } else {
+            overlay.draw(batch, promptText());
+        }
         batch.end();
     }
 
@@ -129,6 +157,9 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
         if (scene != null) {
             scene.dispose();
         }
+        if (menuOverlay != null) {
+            menuOverlay.dispose();
+        }
         if (overlay != null) {
             overlay.dispose();
         }
@@ -140,6 +171,9 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
         }
         if (heroRunSheet != null) {
             heroRunSheet.dispose();
+        }
+        if (titleBackground != null) {
+            titleBackground.dispose();
         }
     }
 
@@ -183,6 +217,21 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
         }
     }
 
+    private void resetGame() {
+        if (scene != null) {
+            scene.dispose();
+        }
+        scene = GdxScene.create(textureStore);
+        story = new GdxStoryState();
+        tvOn = false;
+        bedroomLampOn = false;
+        phoneDresserOpen = false;
+        hasLantern = false;
+        direction = DIRECTION_DOWN;
+        overlay.clear();
+        switchMap(0);
+    }
+
     private void switchMap(int index) {
         currentMapIndex = MathUtils.clamp(index, 0, maps.length - 1);
         GdxMapData map = currentMap();
@@ -201,6 +250,12 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
     }
 
     private void handleInput(float delta) {
+        if (!overlay.isBlocking() &&
+                (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE) || Gdx.input.isKeyJustPressed(Input.Keys.P))) {
+            screenMode = ScreenMode.PAUSED;
+            menuIndex = 0;
+            return;
+        }
         if (overlay.isChoiceOpen()) {
             handleChoiceInput();
             return;
@@ -218,6 +273,57 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
             return;
         }
         updatePlayer(delta);
+    }
+
+    private void handleTitleInput() {
+        updateMenuSelection(TITLE_MENU_ITEMS.length);
+        if (!interactPressed()) {
+            return;
+        }
+        if (menuIndex == 0) {
+            resetGame();
+            screenMode = ScreenMode.PLAYING;
+        } else if (menuIndex == 1) {
+            Gdx.app.exit();
+        }
+    }
+
+    private void handlePauseInput() {
+        if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE) || Gdx.input.isKeyJustPressed(Input.Keys.P)) {
+            screenMode = ScreenMode.PLAYING;
+            return;
+        }
+        updateMenuSelection(PAUSE_MENU_ITEMS.length);
+        if (!interactPressed()) {
+            return;
+        }
+        if (menuIndex == 0) {
+            screenMode = ScreenMode.PLAYING;
+        } else if (menuIndex == 1) {
+            resetGame();
+            screenMode = ScreenMode.PLAYING;
+        } else if (menuIndex == 2) {
+            overlay.clear();
+            screenMode = ScreenMode.TITLE;
+            menuIndex = 0;
+        } else if (menuIndex == 3) {
+            Gdx.app.exit();
+        }
+    }
+
+    private void updateMenuSelection(int itemCount) {
+        if (Gdx.input.isKeyJustPressed(Input.Keys.W) || Gdx.input.isKeyJustPressed(Input.Keys.UP)) {
+            menuIndex--;
+        }
+        if (Gdx.input.isKeyJustPressed(Input.Keys.S) || Gdx.input.isKeyJustPressed(Input.Keys.DOWN)) {
+            menuIndex++;
+        }
+        if (menuIndex < 0) {
+            menuIndex = itemCount - 1;
+        }
+        if (menuIndex >= itemCount) {
+            menuIndex = 0;
+        }
     }
 
     private void handleChoiceInput() {
@@ -567,8 +673,8 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
         titleUpdateTimer += delta;
         if (titleUpdateTimer >= 0.5f) {
             titleUpdateTimer = 0f;
-            Gdx.graphics.setTitle("Reflection LibGDX - " + currentMap().name + " - " +
-                    Gdx.graphics.getFramesPerSecond() + " FPS");
+            String state = screenMode == ScreenMode.TITLE ? "Main Menu" : currentMap().name;
+            Gdx.graphics.setTitle("Reflection LibGDX - " + state + " - " + Gdx.graphics.getFramesPerSecond() + " FPS");
         }
     }
 
@@ -600,5 +706,11 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
 
     private GdxMapData currentMap() {
         return maps[currentMapIndex];
+    }
+
+    private enum ScreenMode {
+        TITLE,
+        PLAYING,
+        PAUSED
     }
 }

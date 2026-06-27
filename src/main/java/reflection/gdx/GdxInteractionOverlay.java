@@ -96,6 +96,15 @@ final class GdxInteractionOverlay implements Disposable {
         selectedChoice = 0;
     }
 
+    void clear() {
+        title = "";
+        text = "";
+        closeAction = null;
+        dialogueOpen = false;
+        activePrompt = null;
+        selectedChoice = 0;
+    }
+
     void closeDialogue() {
         if (!dialogueOpen) {
             return;
