@@ -17,6 +17,7 @@ The current prototype renders the real project maps and the first gameplay scene
 - `E` or `Enter`: interact / advance dialogue
 - `Space`: advance dialogue
 - `W/S` or arrows in dialogue: select an answer
+- `I`: open / close the task note
 - `Esc` or `P`: pause / resume
 - `1`: apartment
 - `2`: Forest of Doubts
@@ -34,6 +35,7 @@ Implemented in the LibGDX backend so far:
 - tile, object, tree, house, and NPC collision
 - interaction prompts and a basic dialogue overlay
 - title menu and in-game pause menu
+- animated task note with progress marks for early-game objectives
 - simple object states for TV, dresser, dirty dishes, and lantern pickup
 - prototype location transitions through apartment door, forest shadow, village library door, and library exit
 - story prompts with answer choices for Shadow, Child, Friend, Elder, and Warrior

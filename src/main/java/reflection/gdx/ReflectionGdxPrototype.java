@@ -43,6 +43,8 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
     private GdxScene scene;
     private GdxInteractionOverlay overlay;
     private GdxMenuOverlay menuOverlay;
+    private GdxTaskJournalOverlay taskJournalOverlay;
+    private GdxTaskJournalState taskJournal;
     private GdxStoryState story;
     private GdxMapData[] maps;
     private int currentMapIndex;
@@ -62,6 +64,8 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
     private boolean phoneDresserOpen;
     private boolean hasLantern;
     private int menuIndex;
+    private boolean journalOpen;
+    private float journalProgress;
     private GdxSceneActor interactionTarget;
     private final Rectangle playerHitbox = new Rectangle();
     private final Rectangle interactionArea = new Rectangle();
@@ -83,6 +87,8 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
         };
         titleBackground = loadNearestTexture("ui/title_reflection_bg.png");
         menuOverlay = new GdxMenuOverlay(titleBackground);
+        taskJournalOverlay = new GdxTaskJournalOverlay();
+        taskJournal = new GdxTaskJournalState();
         heroIdleSheet = loadNearestTexture("player/new/Amelia_idle_anim_16x16.png");
         heroRunSheet = loadNearestTexture("player/new/Amelia_run_16x16.png");
         heroIdleFrames = sliceHeroSheet(heroIdleSheet);
@@ -113,6 +119,7 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
             updateCamera();
         }
         updateTitle(delta);
+        updateJournal(delta);
 
         Gdx.gl.glClearColor(0f, 0f, 0f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
@@ -142,6 +149,7 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
             menuOverlay.drawPause(batch, PAUSE_MENU_ITEMS, menuIndex);
         } else {
             overlay.draw(batch, promptText());
+            taskJournalOverlay.draw(batch, taskJournal, journalProgress);
         }
         batch.end();
     }
@@ -159,6 +167,9 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
         }
         if (menuOverlay != null) {
             menuOverlay.dispose();
+        }
+        if (taskJournalOverlay != null) {
+            taskJournalOverlay.dispose();
         }
         if (overlay != null) {
             overlay.dispose();
@@ -227,7 +238,10 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
         bedroomLampOn = false;
         phoneDresserOpen = false;
         hasLantern = false;
+        journalOpen = false;
+        journalProgress = 0f;
         direction = DIRECTION_DOWN;
+        taskJournal.reset();
         overlay.clear();
         switchMap(0);
     }
@@ -253,7 +267,12 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
         if (!overlay.isBlocking() &&
                 (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE) || Gdx.input.isKeyJustPressed(Input.Keys.P))) {
             screenMode = ScreenMode.PAUSED;
+            journalOpen = false;
             menuIndex = 0;
+            return;
+        }
+        if (!overlay.isBlocking() && Gdx.input.isKeyJustPressed(Input.Keys.I)) {
+            journalOpen = !journalOpen;
             return;
         }
         if (overlay.isChoiceOpen()) {
@@ -304,6 +323,7 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
             screenMode = ScreenMode.PLAYING;
         } else if (menuIndex == 2) {
             overlay.clear();
+            journalOpen = false;
             screenMode = ScreenMode.TITLE;
             menuIndex = 0;
         } else if (menuIndex == 3) {
@@ -503,6 +523,9 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
             case "TV":
                 tvOn = !tvOn;
                 scene.setTvOn(tvOn);
+                if (tvOn) {
+                    taskJournal.markTvTurnedOn();
+                }
                 overlay.showDialogue("TV", tvOn
                         ? "The screen wakes up with a soft glow. The room feels less empty."
                         : "The screen goes dark again.");
@@ -517,22 +540,29 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
             case "Phone Dresser":
                 phoneDresserOpen = true;
                 scene.setPhoneDresserOpen(true);
+                taskJournal.markPhoneFound();
                 overlay.showDialogue("Dresser", "The drawer slides open. A phone is inside, already lit by a message from mom.");
                 break;
             case "Dirty Dishes":
             case "Kitchen Wall Sink":
                 scene.hideDirtyDishes();
+                taskJournal.markDishesCleared();
                 overlay.showDialogue("Kitchen", "The dishes are cleared away. Running water cuts through the heavy silence.");
                 break;
             case "Lantern":
                 hasLantern = true;
                 scene.pickupLantern();
+                taskJournal.markLanternPicked();
                 overlay.showDialogue("Lantern", "You pick up the lantern. Its light makes the forest path easier to read.");
                 break;
             case "Bed":
+                taskJournal.markBedMade();
                 overlay.showDialogue("Bed", "The blanket is pulled straight. The room looks a little calmer.");
                 break;
             case "Sofa":
+                if (tvOn) {
+                    taskJournal.markSofaRested();
+                }
                 overlay.showDialogue("Sofa", tvOn
                         ? "You sit down for a moment. The TV noise fills the room."
                         : "It would feel easier to rest here if the TV were on first.");
@@ -667,6 +697,19 @@ final class ReflectionGdxPrototype extends ApplicationAdapter {
         float drawX = playerX - (PLAYER_DRAW_WIDTH - TILE_SIZE) * 0.5f;
         float drawY = map.pixelHeight(TILE_SIZE) - playerY - TILE_SIZE;
         batch.draw(frame, drawX, drawY, PLAYER_DRAW_WIDTH, PLAYER_DRAW_HEIGHT);
+    }
+
+    private void updateJournal(float delta) {
+        if (screenMode != ScreenMode.PLAYING) {
+            journalOpen = false;
+        }
+        float target = journalOpen ? 1f : 0f;
+        float speed = delta * 7.5f;
+        if (journalProgress < target) {
+            journalProgress = MathUtils.clamp(journalProgress + speed, 0f, 1f);
+        } else if (journalProgress > target) {
+            journalProgress = MathUtils.clamp(journalProgress - speed, 0f, 1f);
+        }
     }
 
     private void updateTitle(float delta) {
